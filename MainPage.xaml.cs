@@ -8,12 +8,12 @@ namespace GestorFinanceiro
     public partial class MainPage : ContentPage
     {
         HistoricoManager hm = new HistoricoManager();
+        private Timer timer;
         public MainPage()
         {
             InitializeComponent();
 
-            Email email = new Email();
-            email.VerificarEmail();
+            timer = new Timer(ExecutarVerificacao, null, 0, 10000); // Executa Verificação de email de 10 em 10 segundos
 
             // Somando os valores do banco
             decimal total = hm.SomarValores();
@@ -95,6 +95,21 @@ namespace GestorFinanceiro
             }
             // Cor do Texto
         }
+
+        // Verificar email
+        static void ExecutarVerificacao(object state)
+        {
+            try
+            {
+                Email email = new Email();
+                email.VerificarEmail();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Erro: " + ex.Message);
+            }
+        }
+        // Verificar email
 
         private async void AddGanhos_Clicked(object sender, EventArgs e)
         {

@@ -4,6 +4,7 @@ using MailKit.Search;
 using MailKit;
 using MimeKit;
 using System.Linq;
+using System.Text.RegularExpressions;
 
 namespace GestorFinanceiro
 {
@@ -29,17 +30,51 @@ namespace GestorFinanceiro
                     var mensagem = inbox.GetMessage(uid);
                     string corpo = mensagem.TextBody?.ToLower();
 
-                    if (corpo != null && corpo.Contains("dinheiro"))
+                    if (corpo != null && (corpo.Contains("dinheiro", StringComparison.OrdinalIgnoreCase) || corpo.Contains("ganhos", StringComparison.OrdinalIgnoreCase) || corpo.Contains("despesas", StringComparison.OrdinalIgnoreCase) || corpo.Contains("debitos", StringComparison.OrdinalIgnoreCase) || corpo.Contains("débitos", StringComparison.OrdinalIgnoreCase)))
                     {
-                        decimal total = hm.SomarValores(); // Soma os valores da tabela
+                        // Verifica no email se esta dinheiro e devolve o total ao user
+                        if (corpo.Contains("dinheiro"))
+                        {
+                            decimal total = hm.SomarValores(); // Soma os valores da tabela
 
-                        // Pega o email do remetente que enviou
-                        string remetente = mensagem.From.Mailboxes.First().Address;
+                            // Pega o email do remetente que enviou
+                            string remetente = mensagem.From.Mailboxes.First().Address;
 
-                        // Envia resposta
-                        EnviarResposta(remetente, total);
-                        // Marca como lido
-                        inbox.AddFlags(uid, MessageFlags.Seen, true);
+                            // Envia resposta
+                            EnviarResposta($"💰 O valor disponível no cartão é: {total}€",remetente, total);
+                            // Marca como lido
+                            inbox.AddFlags(uid, MessageFlags.Seen, true);
+                        }
+
+                        // Verifica no email se esta escrito gasnhos e adiciona ao db e devolve o total ao user
+                        if (corpo != null && Regex.Match(corpo, @"\bganhos\s+(\d+(\.\d+)?)\b", RegexOptions.IgnoreCase).Success)
+                        {
+                            var match = Regex.Match(corpo, @"\bganhos\s+(\d+(\.\d+)?)\b", RegexOptions.IgnoreCase);
+                            decimal ganhoDb = Convert.ToDecimal(match.Groups[1].Value);
+
+                            hm.InserirHistorico("Ganhos", ganhoDb);
+                            decimal total = hm.SomarValores(); // Soma os valores da tabela
+                            string remetente = mensagem.From.Mailboxes.First().Address;
+
+                            EnviarResposta($"Foram adicionados {ganhoDb}€.\n 💰 O valor disponível no cartão é: {total}€",remetente, total);
+                            inbox.AddFlags(uid, MessageFlags.Seen, true);
+                        }
+
+                        // Verifica no email se esta escrito despesa ou debito e retira do db e devolve o total ao user
+                        var match2 = Regex.Match(corpo ?? "", @"\b(debitos|despesas|débitos)\s+(\d+(\.\d+)?)\b", RegexOptions.IgnoreCase);
+                        if (match2.Success)
+                        {
+                            decimal despesaDb = Convert.ToDecimal(match2.Groups[2].Value);
+
+                            hm.InserirHistorico("Gastos", -(despesaDb));
+                            decimal total = hm.SomarValores();
+                            string remetente = mensagem.From.Mailboxes.First().Address;
+
+                            EnviarResposta($"Foram gastos {despesaDb}€.\n 💰 O valor disponível no cartão é: {total}€", remetente, total);
+                            inbox.AddFlags(uid, MessageFlags.Seen, true);
+                        }
+
+
                     }
                 }
 
@@ -47,7 +82,7 @@ namespace GestorFinanceiro
             }
         }
 
-        public void EnviarResposta(string destinatario, decimal valorTotal)
+        public void EnviarResposta(string resposta, string destinatario, decimal valorTotal)
         {
             var mensagem = new MimeMessage();
             mensagem.From.Add(new MailboxAddress("Meu Bot", "joaotestecsharp@gmail.com")); // Usa o mesmo email autenticado
@@ -56,7 +91,7 @@ namespace GestorFinanceiro
 
             mensagem.Body = new TextPart("plain")
             {
-                Text = $"💰 O valor disponível no cartão é: {valorTotal}€"
+                Text = resposta
             };
 
             using (var client = new SmtpClient())
